@@ -118,6 +118,8 @@ for ((PART_NUMBER=1; PART_NUMBER<=TOTAL_PARTS; PART_NUMBER++)); do
             --part-number "$PART_NUMBER" \
             --region "$REGION" \
             --expires-in ${MULTIPART_EXPIRATION:-14400} 2>&1)
+        echo ">>>>PRESIGNED URL"
+        echo $PRESIGNED_URL
         
         PRESIGN_EXIT_CODE=$?
     else
@@ -130,6 +132,8 @@ for ((PART_NUMBER=1; PART_NUMBER<=TOTAL_PARTS; PART_NUMBER++)); do
             --operation upload-part \
             --upload-id "$UPLOAD_ID" \
             --part-number "$PART_NUMBER" 2>&1)
+        echo ">>>>PRESIGNED URL"
+        echo $PRESIGNED_URL
         
         PRESIGN_EXIT_CODE=$?
     fi
