@@ -1,0 +1,40 @@
+# Python virtual environment
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Configuration files with credentials
+config.sh
+
+# Test files
+test-*.bin
+test-*.txt
+test-*.mp4
+test-*.zip
+*.tmp
+
+# Upload logs
+upload-log.txt
+*.log
+
+# Shell scripts (not needed in container)
+*.sh
+
+# Git files
+.git/
+.gitignore
+
+# Documentation
+README.md
+*.md
+
+# IAM resource scripts
+create-iam-resources.sh
+delete-iam-resources.sh
+list-iam-resources.sh
+assume-role.sh
+
+# Other files
+myfile.txt
+
