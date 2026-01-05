@@ -308,7 +308,7 @@ if [ $COMPLETE_EXIT_CODE -eq 0 ]; then
         fi
     fi
     echo "  File: s3://$BUCKET_NAME/$S3_KEY"
-    echo "  URL: https://s3.$REGION.amazonaws.com/$BUCKET_NAME/$S3_KEY"
+    echo "  URL: https://$BUCKET_NAME.s3.$REGION.amazonaws.com/$S3_KEY"
 elif [ $COMPLETE_EXIT_CODE -eq 124 ]; then
     echo "✗ Completion request timed out after 30 seconds"
     echo "  Upload ID: $UPLOAD_ID"
