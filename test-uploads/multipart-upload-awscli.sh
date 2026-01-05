@@ -1,5 +1,6 @@
 #!/bin/bash
-# Multipart file upload to S3 using presigned URLs with AWS CLI
+# Multipart file upload to S3 using presigned URLs (SigV4 signed) with AWS CLI
+# Note: Multipart uploads require presigned URLs (generated via SigV4)
 # Usage: ./multipart-upload-awscli.sh <file-path> [s3-key] [part-size-mb]
 
 set -e
@@ -93,8 +94,22 @@ USE_DOCKER=false
 PYTHON_SCRIPT="generate-multipart-presigned-url.py"
 DOCKER_HELPER="$SCRIPT_DIR/run-python-container.sh"
 
+# Check if Docker is both installed AND running
 if command -v docker &>/dev/null && [ -f "$DOCKER_HELPER" ]; then
-    USE_DOCKER=true
+    # Test if Docker daemon is actually running (with timeout to avoid hanging)
+    if command -v timeout &>/dev/null; then
+        if timeout 2 docker info &>/dev/null 2>&1; then
+            USE_DOCKER=true
+        fi
+    else
+        # Without timeout, use a quick check that won't hang
+        if docker ps &>/dev/null 2>&1; then
+            USE_DOCKER=true
+        fi
+    fi
+    if [ "$USE_DOCKER" = false ]; then
+        echo "  Note: Docker is not available. Using AWS CLI for presigned URLs..."
+    fi
 fi
 
 if [ "$USE_DOCKER" = true ]; then
@@ -111,17 +126,30 @@ for ((PART_NUMBER=1; PART_NUMBER<=TOTAL_PARTS; PART_NUMBER++)); do
     
     if [ "$USE_DOCKER" = true ]; then
         # Use Docker container with Python 3.12/boto3 for reliable presigned URL generation
-        PRESIGNED_URL=$("$DOCKER_HELPER" "$PYTHON_SCRIPT" \
-            --bucket "$BUCKET_NAME" \
-            --key "$S3_KEY" \
-            --upload-id "$UPLOAD_ID" \
-            --part-number "$PART_NUMBER" \
-            --region "$REGION" \
-            --expires-in ${MULTIPART_EXPIRATION:-14400} 2>&1)
-        echo ">>>>PRESIGNED URL"
-        echo $PRESIGNED_URL
-        
-        PRESIGN_EXIT_CODE=$?
+        # Add timeout to prevent hanging
+        if command -v timeout &>/dev/null; then
+            PRESIGNED_URL=$(timeout 30 "$DOCKER_HELPER" "$PYTHON_SCRIPT" \
+                --bucket "$BUCKET_NAME" \
+                --key "$S3_KEY" \
+                --upload-id "$UPLOAD_ID" \
+                --part-number "$PART_NUMBER" \
+                --region "$REGION" \
+                --expires-in ${MULTIPART_EXPIRATION:-14400} 2>&1)
+            PRESIGN_EXIT_CODE=$?
+            if [ $PRESIGN_EXIT_CODE -eq 124 ]; then
+                echo "Error: Presigned URL generation timed out after 30 seconds"
+                PRESIGNED_URL="Error: Timeout"
+            fi
+        else
+            PRESIGNED_URL=$("$DOCKER_HELPER" "$PYTHON_SCRIPT" \
+                --bucket "$BUCKET_NAME" \
+                --key "$S3_KEY" \
+                --upload-id "$UPLOAD_ID" \
+                --part-number "$PART_NUMBER" \
+                --region "$REGION" \
+                --expires-in ${MULTIPART_EXPIRATION:-14400} 2>&1)
+            PRESIGN_EXIT_CODE=$?
+        fi
     else
         # Fallback to AWS CLI
         PRESIGNED_URL=$(aws s3api presign \
@@ -132,8 +160,6 @@ for ((PART_NUMBER=1; PART_NUMBER<=TOTAL_PARTS; PART_NUMBER++)); do
             --operation upload-part \
             --upload-id "$UPLOAD_ID" \
             --part-number "$PART_NUMBER" 2>&1)
-        echo ">>>>PRESIGNED URL"
-        echo $PRESIGNED_URL
         
         PRESIGN_EXIT_CODE=$?
     fi
@@ -176,6 +202,9 @@ for ((PART_NUMBER=1; PART_NUMBER<=TOTAL_PARTS; PART_NUMBER++)); do
         exit 1
     fi
     
+    # Print the presigned URL for this part
+    echo "    Part $PART_NUMBER presigned URL: $PRESIGNED_URL"
+    
     PRESIGNED_URLS[$PART_NUMBER]=$PRESIGNED_URL
     PART_NUMBERS[$PART_NUMBER]=$PART_NUMBER
 done
@@ -206,10 +235,10 @@ for ((PART_NUMBER=1; PART_NUMBER<=TOTAL_PARTS; PART_NUMBER++)); do
     PART_FILE="$TEMP_DIR/part_${PART_NUMBER}.tmp"
     dd if="$FILE_PATH" of="$PART_FILE" bs=1 skip=$START_BYTE count=$PART_SIZE_BYTES 2>/dev/null
     
-    # Upload part using curl
-    # For multipart upload parts (uploadPart), Content-Type is not required
-    # The presigned URL signature doesn't include Content-Type for uploadPart operations
-    # Use -T (upload file) which automatically uses PUT method
+    # Upload part using presigned URL
+    # Note: For multipart uploads, we MUST use presigned URLs (required by S3 multipart API)
+    # The presigned URL is already SigV4 signed by AWS, so we use curl to upload it
+    # Using curl preserves the presigned URL signature exactly as generated
     RESPONSE=$(curl -T "$PART_FILE" \
         --url "${PRESIGNED_URLS[$PART_NUMBER]}" \
         --silent \

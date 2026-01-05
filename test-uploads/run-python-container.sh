@@ -44,5 +44,5 @@ docker run --rm \
     -e AWS_DEFAULT_REGION \
     -w /app \
     "$DOCKER_IMAGE" \
-    "$PYTHON_SCRIPT" "$@"
+    python3 "$PYTHON_SCRIPT" "$@"
 

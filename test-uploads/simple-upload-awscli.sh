@@ -1,5 +1,5 @@
 #!/bin/bash
-# Simple file upload to S3 using presigned URLs with AWS CLI
+# Simple file upload to S3 using awscurl with SigV4 signing
 # Usage: ./simple-upload-awscli.sh <file-path> [s3-key]
 
 set -e
@@ -64,125 +64,155 @@ if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$AWS_
     exit 1
 fi
 
-# Generate presigned URL using s3api for PUT operation
-# Note: aws s3 presign generates GET URLs - we MUST use s3api presign for PUT
-echo "Step 3: Generating presigned URL..."
+# Upload file using awscurl (SigV4 signing)
+echo "Step 3: Uploading file using awscurl (SigV4 signed)..."
 
-# Try Python/boto3 method first (more reliable with temporary credentials)
-# Use Docker container with Python 3.12
-PRESIGNED_URL=""
-PYTHON_SCRIPT="generate-presigned-url.py"
-DOCKER_HELPER="$SCRIPT_DIR/run-python-container.sh"
+# Use helper script to run awscurl (handles Docker/system detection)
+AWSCURL_HELPER="$SCRIPT_DIR/run-awscurl.sh"
 
-# Check if Docker is available and helper script exists
-USE_DOCKER=false
-if command -v docker &>/dev/null && [ -f "$DOCKER_HELPER" ]; then
-    USE_DOCKER=true
-fi
-
-if [ "$USE_DOCKER" = true ]; then
-    echo "  Using Docker container (Python 3.12) to generate presigned URL..."
-    PRESIGNED_URL=$("$DOCKER_HELPER" "$PYTHON_SCRIPT" \
-        --bucket "$BUCKET_NAME" \
-        --key "$S3_KEY" \
-        --region "$REGION" \
-        --expires-in ${PRESIGNED_URL_EXPIRATION:-3600} 2>&1)
-    
-    if [ $? -eq 0 ] && [[ "$PRESIGNED_URL" =~ ^https:// ]]; then
-        echo "  ✓ Presigned URL generated using Docker container (Python 3.12/boto3)"
-    else
-        echo "  Docker method failed, trying AWS CLI..."
-        PRESIGNED_URL=""
-    fi
-fi
-
-# Fallback to AWS CLI if Python method didn't work
-if [ -z "$PRESIGNED_URL" ] || [[ ! "$PRESIGNED_URL" =~ ^https:// ]]; then
-    echo "  Using AWS CLI to generate presigned URL..."
-    
-    # Try aws s3api presign with --operation put-object first
-    TEMP_URL=$(aws s3api presign \
-        --bucket "$BUCKET_NAME" \
-        --key "$S3_KEY" \
-        --expires-in ${PRESIGNED_URL_EXPIRATION:-3600} \
-        --region "$REGION" \
-        --operation put-object 2>&1)
-    
-    PRESIGN_EXIT_CODE=$?
-    
-    # If that failed or doesn't look like a URL, try without --operation
-    # Some AWS CLI versions may have different syntax
-    if [ $PRESIGN_EXIT_CODE -ne 0 ] || [[ "$TEMP_URL" =~ ^[Ee]rror ]] || [[ "$TEMP_URL" =~ ^usage: ]] || [[ ! "$TEMP_URL" =~ ^https:// ]]; then
-        echo "  Note: Trying alternative presign syntax..."
-        TEMP_URL=$(aws s3api presign \
-            --bucket "$BUCKET_NAME" \
-            --key "$S3_KEY" \
-            --expires-in ${PRESIGNED_URL_EXPIRATION:-3600} \
-            --region "$REGION" 2>&1)
-        PRESIGN_EXIT_CODE=$?
-    fi
-    
-    # Check for errors
-    if [ $PRESIGN_EXIT_CODE -ne 0 ] || [[ "$TEMP_URL" =~ ^[Ee]rror ]] || [[ "$TEMP_URL" =~ ^usage: ]]; then
-        echo "Error: Failed to generate presigned URL with aws s3api presign"
-        echo "$TEMP_URL"
-        echo ""
-        echo "This is likely because your AWS CLI version doesn't support --operation with presign."
-        echo "Please install boto3 for reliable presigned URL generation:"
-        echo "  pip3 install boto3"
-        echo ""
-        echo "Or upgrade AWS CLI:"
-        echo "  pip3 install --upgrade awscli"
-        exit 1
-    fi
-    
-    # Clean up the URL - get the actual URL, handling any extra output
-    # The URL should be the first line that starts with https://
-    PRESIGNED_URL=$(echo "$TEMP_URL" | grep -oE 'https://[^[:space:]]+' | head -1)
-    
-    # If grep didn't work, try simpler extraction
-    if [ -z "$PRESIGNED_URL" ]; then
-        PRESIGNED_URL=$(echo "$TEMP_URL" | head -1 | tr -d '"' | tr -d "'" | tr -d '\n' | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-    fi
-    
-    # Warn if URL doesn't look like a PUT URL
-    if [[ "$PRESIGNED_URL" =~ ^https:// ]] && [[ ! "$PRESIGNED_URL" =~ X-Amz-Expires ]]; then
-        echo "  Warning: Presigned URL might not be for PUT operation"
-    fi
-fi
-
-# Validate URL looks correct
-if [[ ! "$PRESIGNED_URL" =~ ^https:// ]]; then
-    echo "Error: Generated URL doesn't look valid: $PRESIGNED_URL"
+if [ ! -f "$AWSCURL_HELPER" ]; then
+    echo "Error: run-awscurl.sh helper script not found"
     exit 1
 fi
 
-echo "  Presigned URL generated (expires in ${PRESIGNED_URL_EXPIRATION:-3600} seconds)"
-echo "  URL: ${PRESIGNED_URL:0:100}..."
+# Build S3 URL
+S3_URL="https://${BUCKET_NAME}.s3.${REGION}.amazonaws.com/${S3_KEY}"
 
-# Upload file using curl
-# Critical: Use the exact URL without any modification
-# Don't add Content-Type or other headers unless they're in the signature
-echo "Step 4: Uploading file..."
-# Use -T (upload file) which automatically uses PUT method
-# Don't add -X PUT as -T already implies PUT
-# Use --url to ensure curl doesn't modify the URL
-UPLOAD_OUTPUT=$(curl -w "\nHTTP Status: %{http_code}" \
-    -T "$FILE_PATH" \
-    --url "$PRESIGNED_URL" \
-    --silent \
-    --show-error \
-    2>&1)
+echo "  Uploading to: $S3_URL"
+
+# For Docker, we need to mount the file directory
+if command -v docker &>/dev/null && ! command -v awscurl &>/dev/null; then
+    # Docker mode - mount file directory
+    FILE_DIR=$(dirname "$FILE_PATH")
+    FILE_NAME=$(basename "$FILE_PATH")
+    
+    UPLOAD_OUTPUT=$(docker run --rm \
+        -v "$FILE_DIR:/data" \
+        -e AWS_ACCESS_KEY_ID \
+        -e AWS_SECRET_ACCESS_KEY \
+        -e AWS_SESSION_TOKEN \
+        -e AWS_DEFAULT_REGION \
+        s3uploader-python:latest \
+        awscurl --service s3 \
+            --region "$REGION" \
+            -X PUT \
+            --data-binary "@/data/$FILE_NAME" \
+            -H "Content-Type: $FILE_TYPE" \
+            --write-out "\nHTTP Status: %{http_code}" \
+            --silent \
+            --show-error \
+            "$S3_URL" 2>&1)
+else
+    # System awscurl or helper script
+    UPLOAD_OUTPUT=$("$AWSCURL_HELPER" --service s3 \
+        --region "$REGION" \
+        -X PUT \
+        --data-binary "@$FILE_PATH" \
+        -H "Content-Type: $FILE_TYPE" \
+        --write-out "\nHTTP Status: %{http_code}" \
+        --silent \
+        --show-error \
+        "$S3_URL" 2>&1)
+fi
+
+UPLOAD_EXIT_CODE=$?
+HTTP_CODE=$(echo "$UPLOAD_OUTPUT" | grep "HTTP Status:" | cut -d' ' -f3 || echo "")
+
+# Check if upload was successful (awscurl returns 0 on success, HTTP 200)
+if [ "$UPLOAD_EXIT_CODE" -eq 0 ]; then
+    echo "✓ Upload successful!"
+    echo "  File uploaded to: s3://$BUCKET_NAME/$S3_KEY"
+    echo "  URL: https://s3.$REGION.amazonaws.com/$BUCKET_NAME/$S3_KEY"
+elif [ "$HTTP_CODE" == "200" ]; then
+    echo "✓ Upload successful! (HTTP 200)"
+    echo "  File uploaded to: s3://$BUCKET_NAME/$S3_KEY"
+    echo "  URL: https://s3.$REGION.amazonaws.com/$BUCKET_NAME/$S3_KEY"
+else
+    echo "✗ Upload failed"
+    if [ -n "$UPLOAD_OUTPUT" ]; then
+        echo "$UPLOAD_OUTPUT"
+    fi
+    exit 1
+fi
+
+# Upload file using awscurl (SigV4 signing)
+echo "Step 4: Uploading file using awscurl (SigV4 signed)..."
+
+# Check if awscurl is available (try Docker container first, then system)
+AWSCURL_CMD=""
+if command -v awscurl &>/dev/null; then
+    AWSCURL_CMD="awscurl"
+elif command -v docker &>/dev/null; then
+    # Try to use awscurl from Docker container
+    DOCKER_IMAGE="s3uploader-python:latest"
+    if docker image inspect "$DOCKER_IMAGE" &>/dev/null 2>&1; then
+        AWSCURL_CMD="docker"
+    fi
+fi
+
+if [ -z "$AWSCURL_CMD" ]; then
+    echo "Error: awscurl not found. Please:"
+    echo "  1. Install awscurl: pip install awscurl"
+    echo "  2. Or rebuild Docker image: docker build -t s3uploader-python:latest -f test-uploads/Dockerfile test-uploads/"
+    exit 1
+fi
+
+# Build S3 URL
+S3_URL="https://${BUCKET_NAME}.s3.${REGION}.amazonaws.com/${S3_KEY}"
+
+echo "  Uploading to: $S3_URL"
+
+# Upload using awscurl with SigV4 signing
+if [ "$AWSCURL_CMD" == "docker" ]; then
+    # Docker version - need to pass file as volume mount
+    FILE_DIR=$(dirname "$FILE_PATH")
+    FILE_NAME=$(basename "$FILE_PATH")
+    
+    UPLOAD_OUTPUT=$(docker run --rm \
+        -v "$FILE_DIR:/data" \
+        -e AWS_ACCESS_KEY_ID \
+        -e AWS_SECRET_ACCESS_KEY \
+        -e AWS_SESSION_TOKEN \
+        -e AWS_DEFAULT_REGION \
+        "$DOCKER_IMAGE" \
+        awscurl --service s3 \
+            --region "$REGION" \
+            -X PUT \
+            --data-binary "@/data/$FILE_NAME" \
+            -H "Content-Type: $FILE_TYPE" \
+            --write-out "\nHTTP Status: %{http_code}" \
+            --silent \
+            --show-error \
+            "$S3_URL" 2>&1)
+    
+    UPLOAD_EXIT_CODE=${PIPESTATUS[0]}
+else
+    # Direct awscurl command (uses credentials from environment)
+    UPLOAD_OUTPUT=$(awscurl --service s3 \
+        --region "$REGION" \
+        -X PUT \
+        --data-binary "@$FILE_PATH" \
+        -H "Content-Type: $FILE_TYPE" \
+        --write-out "\nHTTP Status: %{http_code}" \
+        --silent \
+        --show-error \
+        "$S3_URL" 2>&1)
+    
+    UPLOAD_EXIT_CODE=$?
+fi
 
 HTTP_CODE=$(echo "$UPLOAD_OUTPUT" | grep "HTTP Status:" | cut -d' ' -f3)
 
-if [ "$HTTP_CODE" == "200" ]; then
+# Check if upload was successful (awscurl returns 0 on success, HTTP 200)
+if [ "$UPLOAD_EXIT_CODE" -eq 0 ] || [ "$HTTP_CODE" == "200" ]; then
     echo "✓ Upload successful!"
     echo "  File uploaded to: s3://$BUCKET_NAME/$S3_KEY"
     echo "  URL: https://s3.$REGION.amazonaws.com/$BUCKET_NAME/$S3_KEY"
 else
-    echo "✗ Upload failed with HTTP status: $HTTP_CODE"
-    echo "$UPLOAD_OUTPUT"
+    echo "✗ Upload failed"
+    if [ -n "$UPLOAD_OUTPUT" ]; then
+        echo "$UPLOAD_OUTPUT"
+    fi
     exit 1
 fi
 

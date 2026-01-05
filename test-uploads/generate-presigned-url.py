@@ -14,7 +14,14 @@ def generate_presigned_url(bucket, key, region, expires_in=3600):
     """Generate a presigned PUT URL for S3."""
     try:
         # Create S3 client with credentials from environment
-        s3_client = boto3.client('s3', region_name=region)
+        # Set timeouts to avoid hanging
+        import botocore.config
+        config = botocore.config.Config(
+            connect_timeout=10,
+            read_timeout=10,
+            retries={'max_attempts': 2}
+        )
+        s3_client = boto3.client('s3', region_name=region, config=config)
         
         # Generate presigned URL for PUT operation
         url = s3_client.generate_presigned_url(
@@ -32,6 +39,8 @@ def generate_presigned_url(bucket, key, region, expires_in=3600):
         sys.exit(1)
     except Exception as e:
         print(f"Unexpected error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         sys.exit(1)
 
 if __name__ == "__main__":
