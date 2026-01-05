@@ -20,12 +20,12 @@ USE_DEFAULT_CREDS=false
 if [ -n "$USER_ACCESS_KEY" ] && [ "$USER_ACCESS_KEY" != "YOUR_ACCESS_KEY" ]; then
     export AWS_ACCESS_KEY_ID=$USER_ACCESS_KEY
     export AWS_SECRET_ACCESS_KEY=$USER_SECRET_KEY
-    export AWS_DEFAULT_REGION=${REGION:-us-east-1}
+    export AWS_DEFAULT_REGION=${REGION:-ap-southeast-2}
     echo "Using user credentials from config.sh"
 else
     USE_DEFAULT_CREDS=true
     echo "Using default AWS CLI credentials (USER_ACCESS_KEY not set in config.sh)"
-    export AWS_DEFAULT_REGION=${REGION:-us-east-1}
+    export AWS_DEFAULT_REGION=${REGION:-ap-southeast-2}
 fi
 
 # Generate unique session name
@@ -46,7 +46,7 @@ else
     # Use user credentials from config
     ASSUME_ROLE_OUTPUT=$(AWS_ACCESS_KEY_ID=$USER_ACCESS_KEY \
         AWS_SECRET_ACCESS_KEY=$USER_SECRET_KEY \
-        AWS_DEFAULT_REGION=${REGION:-us-east-1} \
+        AWS_DEFAULT_REGION=${REGION:-ap-southeast-2} \
         aws sts assume-role \
         --role-arn "$ROLE_ARN" \
         --role-session-name "$ROLE_SESSION_NAME" \

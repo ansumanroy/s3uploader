@@ -15,7 +15,7 @@ fi
 ROLE_NAME=${1:-"S3UploadRole"}
 BUCKET_NAME=${2:-${BUCKET_NAME:-"my-upload-bucket"}}
 PRINCIPAL_ARN=${3:-""}  # Optional: specific principal that can assume the role
-REGION=${REGION:-"us-east-1"}
+REGION=${REGION:-"ap-southeast-2"}
 
 # Account ID detection
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")

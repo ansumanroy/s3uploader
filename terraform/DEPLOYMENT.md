@@ -35,7 +35,7 @@ cp terraform.tfvars.example terraform.tfvars
 Edit `terraform.tfvars` with your configuration:
 
 ```hcl
-aws_region = "us-east-1"
+aws_region = "ap-southeast-2"
 project_name = "s3uploader"
 environment = "dev"
 s3_bucket_name = ""  # Leave empty for auto-generation
@@ -92,7 +92,7 @@ Update your frontend code (`uploader-presigned.js`) with the API Gateway URL:
 
 ```javascript
 const uploader = new S3MultipartUploaderPresigned({
-    apiEndpoint: 'https://your-api-gateway-url.execute-api.us-east-1.amazonaws.com/dev/initiate-upload',
+    apiEndpoint: 'https://your-api-gateway-url.execute-api.ap-southeast-2.amazonaws.com/dev/initiate-upload',
     chunkSize: 5 * 1024 * 1024,
     maxRetries: 3
 });
@@ -103,7 +103,7 @@ const uploader = new S3MultipartUploaderPresigned({
 ### Test Initiate Upload
 
 ```bash
-curl -X POST https://your-api-gateway-url.execute-api.us-east-1.amazonaws.com/dev/initiate-upload \
+curl -X POST https://your-api-gateway-url.execute-api.ap-southeast-2.amazonaws.com/dev/initiate-upload \
   -H "Content-Type: application/json" \
   -d '{
     "fileName": "test-file.zip",
@@ -135,7 +135,7 @@ Expected response:
 ### Test Complete Upload
 
 ```bash
-curl -X POST https://your-api-gateway-url.execute-api.us-east-1.amazonaws.com/dev/complete-upload \
+curl -X POST https://your-api-gateway-url.execute-api.ap-southeast-2.amazonaws.com/dev/complete-upload \
   -H "Content-Type: application/json" \
   -d '{
     "uploadId": "abc123...",

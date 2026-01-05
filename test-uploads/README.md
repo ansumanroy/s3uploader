@@ -105,7 +105,7 @@ User Credentials → Assume Role → Role Credentials → Generate Presigned URL
    
    # S3 Configuration
    export BUCKET_NAME="my-upload-bucket"
-   export REGION="us-east-1"
+   export REGION="ap-southeast-2"
    ```
    
    **Note**: If using a user, also set:

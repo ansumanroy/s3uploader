@@ -1,5 +1,5 @@
 # AWS Configuration
-aws_region = "us-east-1"
+aws_region = "ap-southeast-2"
 
 # Project Configuration
 project_name = "s3uploader"

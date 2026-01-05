@@ -30,7 +30,7 @@ This Terraform configuration creates the AWS infrastructure needed for the S3 mu
 
 3. **Edit terraform.tfvars** with your configuration:
    ```hcl
-   aws_region = "us-east-1"
+   aws_region = "ap-southeast-2"
    project_name = "s3uploader"
    environment = "dev"
    s3_bucket_name = "my-upload-bucket"  # Optional: leave empty for auto-generation
@@ -63,7 +63,7 @@ This Terraform configuration creates the AWS infrastructure needed for the S3 mu
 
 See `variables.tf` for all available variables. Key variables:
 
-- `aws_region`: AWS region for resources (default: `us-east-1`)
+- `aws_region`: AWS region for resources (default: `ap-southeast-2`)
 - `project_name`: Project name for resource naming (default: `s3uploader`)
 - `s3_bucket_name`: S3 bucket name (leave empty for auto-generation)
 - `environment`: Environment name (dev, staging, prod)
@@ -155,7 +155,7 @@ Update your frontend code (`uploader-presigned.js`) to use the API Gateway URL:
 
 ```javascript
 const uploader = new S3MultipartUploaderPresigned({
-    apiEndpoint: 'https://your-api-gateway-url.execute-api.us-east-1.amazonaws.com/dev/initiate-upload',
+    apiEndpoint: 'https://your-api-gateway-url.execute-api.ap-southeast-2.amazonaws.com/dev/initiate-upload',
     chunkSize: 5 * 1024 * 1024,
     maxRetries: 3
 });
