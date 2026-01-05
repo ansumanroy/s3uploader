@@ -14,9 +14,10 @@ def generate_presigned_url(bucket, key, upload_id, part_number, region, expires_
     """Generate a presigned URL for S3 multipart upload part."""
     try:
         # Create S3 client with credentials from environment
-        # Set endpoint_url to None to use default, and configure to avoid hanging
+        # Force SigV4 (s3v4) signing for presigned URLs
         import botocore.config
         config = botocore.config.Config(
+            signature_version='s3v4',  # Force SigV4 (required for all S3 buckets)
             connect_timeout=10,
             read_timeout=10,
             retries={'max_attempts': 2}
