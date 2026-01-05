@@ -41,6 +41,17 @@ if [ ! -f "$FILE_PATH" ]; then
     exit 1
 fi
 
+# Set up AWS credentials (if USER_ACCESS_KEY is provided in config, use it; otherwise use default AWS credentials)
+if [ -n "$USER_ACCESS_KEY" ] && [ "$USER_ACCESS_KEY" != "YOUR_ACCESS_KEY" ]; then
+    export AWS_ACCESS_KEY_ID="$USER_ACCESS_KEY"
+    export AWS_SECRET_ACCESS_KEY="$USER_SECRET_KEY"
+    export AWS_DEFAULT_REGION="${REGION:-us-east-1}"
+    echo "Using credentials from config.sh"
+else
+    export AWS_DEFAULT_REGION="${REGION:-us-east-1}"
+    echo "Using default AWS credentials (from environment or ~/.aws/credentials)"
+fi
+
 # Get file info
 FILE_SIZE=$(stat -f%z "$FILE_PATH" 2>/dev/null || stat -c%s "$FILE_PATH" 2>/dev/null)
 FILE_TYPE=$(file --mime-type -b "$FILE_PATH" 2>/dev/null || echo "application/octet-stream")
