@@ -69,30 +69,29 @@ fi
 echo "Step 3: Generating presigned URL..."
 
 # Try Python/boto3 method first (more reliable with temporary credentials)
+# Use Docker container with Python 3.12
 PRESIGNED_URL=""
-PYTHON_SCRIPT="$SCRIPT_DIR/generate-presigned-url.py"
-VENV_PYTHON="$SCRIPT_DIR/venv/bin/python3"
+PYTHON_SCRIPT="generate-presigned-url.py"
+DOCKER_HELPER="$SCRIPT_DIR/run-python-container.sh"
 
-# Check for Python with boto3 - prefer venv if it exists
-PYTHON_CMD=""
-if [ -f "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "import boto3" 2>/dev/null; then
-    PYTHON_CMD="$VENV_PYTHON"
-elif command -v python3 &>/dev/null && python3 -c "import boto3" 2>/dev/null; then
-    PYTHON_CMD="python3"
+# Check if Docker is available and helper script exists
+USE_DOCKER=false
+if command -v docker &>/dev/null && [ -f "$DOCKER_HELPER" ]; then
+    USE_DOCKER=true
 fi
 
-if [ -f "$PYTHON_SCRIPT" ] && [ -n "$PYTHON_CMD" ]; then
-    echo "  Using Python/boto3 to generate presigned URL..."
-    PRESIGNED_URL=$("$PYTHON_CMD" "$PYTHON_SCRIPT" \
+if [ "$USE_DOCKER" = true ]; then
+    echo "  Using Docker container (Python 3.12) to generate presigned URL..."
+    PRESIGNED_URL=$("$DOCKER_HELPER" "$PYTHON_SCRIPT" \
         --bucket "$BUCKET_NAME" \
         --key "$S3_KEY" \
         --region "$REGION" \
         --expires-in ${PRESIGNED_URL_EXPIRATION:-3600} 2>&1)
     
     if [ $? -eq 0 ] && [[ "$PRESIGNED_URL" =~ ^https:// ]]; then
-        echo "  ✓ Presigned URL generated using Python/boto3"
+        echo "  ✓ Presigned URL generated using Docker container (Python 3.12/boto3)"
     else
-        echo "  Python method failed, trying AWS CLI..."
+        echo "  Docker method failed, trying AWS CLI..."
         PRESIGNED_URL=""
     fi
 fi

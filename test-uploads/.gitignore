@@ -15,3 +15,6 @@ test-*.txt
 test-*.mp4
 test-*.zip
 test-*.bin
+
+# Docker build cache (optional, usually not committed)
+.docker/

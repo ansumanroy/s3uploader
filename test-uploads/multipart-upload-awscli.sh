@@ -88,21 +88,17 @@ echo "  Upload ID: $UPLOAD_ID"
 # Generate presigned URLs for all parts
 echo "Step 4: Generating presigned URLs for $TOTAL_PARTS parts..."
 
-# Check for Python with boto3 - prefer venv if it exists
-PYTHON_CMD=""
-VENV_PYTHON="$SCRIPT_DIR/venv/bin/python3"
-PYTHON_SCRIPT="$SCRIPT_DIR/generate-multipart-presigned-url.py"
+# Check for Docker with Python 3.12 - use container for presigned URL generation
+USE_DOCKER=false
+PYTHON_SCRIPT="generate-multipart-presigned-url.py"
+DOCKER_HELPER="$SCRIPT_DIR/run-python-container.sh"
 
-if [ -f "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "import boto3" 2>/dev/null; then
-    PYTHON_CMD="$VENV_PYTHON"
-elif command -v python3 &>/dev/null && python3 -c "import boto3" 2>/dev/null; then
-    PYTHON_CMD="python3"
+if command -v docker &>/dev/null && [ -f "$DOCKER_HELPER" ]; then
+    USE_DOCKER=true
 fi
 
-USE_PYTHON=false
-if [ -f "$PYTHON_SCRIPT" ] && [ -n "$PYTHON_CMD" ]; then
-    USE_PYTHON=true
-    echo "  Using Python/boto3 to generate presigned URLs..."
+if [ "$USE_DOCKER" = true ]; then
+    echo "  Using Docker container (Python 3.12) to generate presigned URLs..."
 else
     echo "  Using AWS CLI to generate presigned URLs..."
 fi
@@ -113,9 +109,9 @@ declare -a PART_NUMBERS
 for ((PART_NUMBER=1; PART_NUMBER<=TOTAL_PARTS; PART_NUMBER++)); do
     echo "  Generating URL for part $PART_NUMBER/$TOTAL_PARTS..."
     
-    if [ "$USE_PYTHON" = true ]; then
-        # Use Python/boto3 for reliable presigned URL generation
-        PRESIGNED_URL=$("$PYTHON_CMD" "$PYTHON_SCRIPT" \
+    if [ "$USE_DOCKER" = true ]; then
+        # Use Docker container with Python 3.12/boto3 for reliable presigned URL generation
+        PRESIGNED_URL=$("$DOCKER_HELPER" "$PYTHON_SCRIPT" \
             --bucket "$BUCKET_NAME" \
             --key "$S3_KEY" \
             --upload-id "$UPLOAD_ID" \
@@ -149,11 +145,10 @@ for ((PART_NUMBER=1; PART_NUMBER<=TOTAL_PARTS; PART_NUMBER++)); do
             --upload-id "$UPLOAD_ID" \
             --region "$REGION" 2>&1 >/dev/null
         
-        if [ "$USE_PYTHON" = false ]; then
+        if [ "$USE_DOCKER" = false ]; then
             echo ""
-            echo "Tip: Install boto3 for better presigned URL generation:"
-            echo "  pip3 install boto3"
-            echo "  Or use the venv: cd test-uploads && python3 -m venv venv && source venv/bin/activate && pip install boto3"
+            echo "Tip: Use Docker for better presigned URL generation:"
+            echo "  Install Docker and run: docker build -t s3uploader-python:latest -f test-uploads/Dockerfile test-uploads/"
         fi
         exit 1
     fi

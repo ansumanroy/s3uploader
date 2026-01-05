@@ -15,10 +15,16 @@ aws s3 cp /tmp/test.txt s3://$BUCKET_NAME/test-direct.txt 2>&1
 
 # Test 2: Presigned URL generation
 echo -e "\nTest 2: Generate presigned URL"
-URL=$(./venv/bin/python3 generate-presigned-url.py \
-    --bucket "$BUCKET_NAME" \
-    --key "test-presigned.txt" \
-    --region "$REGION")
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/run-python-container.sh" ] && command -v docker &>/dev/null; then
+    URL=$("$SCRIPT_DIR/run-python-container.sh" generate-presigned-url.py \
+        --bucket "$BUCKET_NAME" \
+        --key "test-presigned.txt" \
+        --region "$REGION")
+else
+    echo "Error: Docker not available or helper script missing"
+    exit 1
+fi
 echo "URL generated: ${URL:0:100}..."
 
 # Test 3: Upload via presigned URL with verbose output
