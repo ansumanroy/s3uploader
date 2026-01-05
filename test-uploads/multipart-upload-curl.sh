@@ -120,6 +120,8 @@ for ((PART_NUMBER=1; PART_NUMBER<=TOTAL_PARTS; PART_NUMBER++)); do
     PRESIGNED_URL=$(echo "$PRESIGNED_URL" | tr -d '"' | tr -d "'" | tr -d '\n' | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     PRESIGNED_URLS[$PART_NUMBER]=$PRESIGNED_URL
     PART_NUMBERS[$PART_NUMBER]=$PART_NUMBER
+    echo "PRESIGNED URL IS:"
+    echo $PRESIGNED_URL
 done
 
 echo "  ✓ All presigned URLs generated"
