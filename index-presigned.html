@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3 Multipart Upload - Presigned URLs</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .upload-area {
+            border: 3px dashed #ddd;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #f9f9f9;
+        }
+
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f0f0ff;
+        }
+
+        .upload-area.dragover {
+            border-color: #667eea;
+            background: #e8e8ff;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+
+        .upload-text {
+            color: #666;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .file-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .file-info.show {
+            display: block;
+        }
+
+        .file-name {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .file-size {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .progress-container {
+            margin-top: 20px;
+            display: none;
+        }
+
+        .progress-container.show {
+            display: block;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #e0e0e0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .progress-text {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .upload-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: transform 0.2s ease;
+        }
+
+        .upload-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .upload-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .status.show {
+            display: block;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .part-progress {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .info-box {
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #004085;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 S3 Multipart Upload</h1>
+        <p class="subtitle">Upload large files using pre-generated presigned URLs</p>
+
+        <div class="info-box">
+            <strong>ℹ️ Using Presigned URLs:</strong> This version assumes your API returns all presigned URLs upfront for faster uploads.
+        </div>
+
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📁</div>
+            <div class="upload-text">Click to select file or drag and drop</div>
+            <input type="file" id="fileInput" class="file-input">
+        </div>
+
+        <div class="file-info" id="fileInfo">
+            <div class="file-name" id="fileName"></div>
+            <div class="file-size" id="fileSize"></div>
+        </div>
+
+        <button class="upload-btn" id="uploadBtn" disabled>Upload File</button>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill">0%</div>
+            </div>
+            <div class="progress-text" id="progressText">Preparing upload...</div>
+            <div class="part-progress" id="partProgress"></div>
+        </div>
+
+        <div class="status" id="status"></div>
+    </div>
+
+    <script src="uploader-presigned.js"></script>
+    <script>
+        // UI Handler for Presigned URL Upload
+        class UploadUIPresigned {
+            constructor() {
+                // Option 1: Use S3MultipartUploaderPresigned (makes API call to get presigned URLs)
+                this.uploader = new S3MultipartUploaderPresigned({
+                    apiEndpoint: '/api/initiate-upload', // Update this to your API endpoint
+                    chunkSize: 5 * 1024 * 1024, // 5MB chunks
+                    maxRetries: 3
+                });
+
+                // Option 2: Use S3MultipartUploaderDirectPresigned (if you already have presigned URLs)
+                // this.uploader = new S3MultipartUploaderDirectPresigned({
+                //     chunkSize: 5 * 1024 * 1024,
+                //     maxRetries: 3,
+                //     completeEndpoint: '/api/complete-upload',
+                //     abortEndpoint: '/api/abort-upload'
+                // });
+
+                this.initializeElements();
+                this.attachEventListeners();
+            }
+
+            initializeElements() {
+                this.uploadArea = document.getElementById('uploadArea');
+                this.fileInput = document.getElementById('fileInput');
+                this.fileInfo = document.getElementById('fileInfo');
+                this.fileName = document.getElementById('fileName');
+                this.fileSize = document.getElementById('fileSize');
+                this.uploadBtn = document.getElementById('uploadBtn');
+                this.progressContainer = document.getElementById('progressContainer');
+                this.progressFill = document.getElementById('progressFill');
+                this.progressText = document.getElementById('progressText');
+                this.partProgress = document.getElementById('partProgress');
+                this.status = document.getElementById('status');
+            }
+
+            attachEventListeners() {
+                // Click to select file
+                this.uploadArea.addEventListener('click', () => {
+                    this.fileInput.click();
+                });
+
+                // File input change
+                this.fileInput.addEventListener('change', (e) => {
+                    if (e.target.files.length > 0) {
+                        this.handleFileSelect(e.target.files[0]);
+                    }
+                });
+
+                // Drag and drop
+                this.uploadArea.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    this.uploadArea.classList.add('dragover');
+                });
+
+                this.uploadArea.addEventListener('dragleave', () => {
+                    this.uploadArea.classList.remove('dragover');
+                });
+
+                this.uploadArea.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    this.uploadArea.classList.remove('dragover');
+                    
+                    if (e.dataTransfer.files.length > 0) {
+                        this.handleFileSelect(e.dataTransfer.files[0]);
+                    }
+                });
+
+                // Upload button
+                this.uploadBtn.addEventListener('click', () => {
+                    this.startUpload();
+                });
+            }
+
+            handleFileSelect(file) {
+                this.selectedFile = file;
+                this.fileName.textContent = file.name;
+                this.fileSize.textContent = this.uploader.formatBytes(file.size);
+                this.fileInfo.classList.add('show');
+                this.uploadBtn.disabled = false;
+                this.hideStatus();
+            }
+
+            showStatus(message, type = 'info') {
+                this.status.textContent = message;
+                this.status.className = `status ${type} show`;
+            }
+
+            hideStatus() {
+                this.status.classList.remove('show');
+            }
+
+            updateProgress(progress) {
+                if (progress.phase === 'initiating') {
+                    this.progressContainer.classList.add('show');
+                    this.progressFill.style.width = '5%';
+                    this.progressFill.textContent = '0%';
+                    this.progressText.textContent = 'Getting presigned URLs...';
+                } else if (progress.phase === 'uploading') {
+                    const percentage = Math.round(progress.progress);
+                    this.progressFill.style.width = `${percentage}%`;
+                    this.progressFill.textContent = `${percentage}%`;
+                    this.progressText.textContent = progress.message || `Uploading... ${percentage}%`;
+                    
+                    if (progress.totalParts && progress.uploadedParts !== undefined) {
+                        this.partProgress.textContent = `Part ${progress.uploadedParts} of ${progress.totalParts} uploaded`;
+                    }
+                } else if (progress.phase === 'completing') {
+                    this.progressFill.style.width = '95%';
+                    this.progressFill.textContent = '95%';
+                    this.progressText.textContent = 'Completing upload...';
+                } else if (progress.phase === 'completed') {
+                    this.progressFill.style.width = '100%';
+                    this.progressFill.textContent = '100%';
+                    this.progressText.textContent = 'Upload completed!';
+                    this.showStatus('File uploaded successfully!', 'success');
+                    this.uploadBtn.disabled = false;
+                    this.uploadBtn.textContent = 'Upload Another File';
+                } else if (progress.phase === 'error') {
+                    this.showStatus(progress.message || 'Upload failed', 'error');
+                    this.uploadBtn.disabled = false;
+                    this.uploadBtn.textContent = 'Retry Upload';
+                }
+            }
+
+            async startUpload() {
+                if (!this.selectedFile) {
+                    this.showStatus('Please select a file first', 'error');
+                    return;
+                }
+
+                this.uploadBtn.disabled = true;
+                this.uploadBtn.textContent = 'Uploading...';
+                this.hideStatus();
+                this.progressContainer.classList.add('show');
+
+                try {
+                    await this.uploader.upload(this.selectedFile, (progress) => {
+                        this.updateProgress(progress);
+                    });
+                } catch (error) {
+                    console.error('Upload error:', error);
+                    this.showStatus(`Upload failed: ${error.message}`, 'error');
+                    this.uploadBtn.disabled = false;
+                    this.uploadBtn.textContent = 'Retry Upload';
+                }
+            }
+
+            // Alternative method if you already have presigned URLs
+            async startUploadWithPresignedUrls(presignedUrlsData) {
+                if (!this.selectedFile) {
+                    this.showStatus('Please select a file first', 'error');
+                    return;
+                }
+
+                // If using S3MultipartUploaderDirectPresigned
+                if (this.uploader.initialize) {
+                    this.uploader.initialize(presignedUrlsData);
+                }
+
+                this.uploadBtn.disabled = true;
+                this.uploadBtn.textContent = 'Uploading...';
+                this.hideStatus();
+                this.progressContainer.classList.add('show');
+
+                try {
+                    await this.uploader.upload(this.selectedFile, (progress) => {
+                        this.updateProgress(progress);
+                    });
+                } catch (error) {
+                    console.error('Upload error:', error);
+                    this.showStatus(`Upload failed: ${error.message}`, 'error');
+                    this.uploadBtn.disabled = false;
+                    this.uploadBtn.textContent = 'Retry Upload';
+                }
+            }
+        }
+
+        // Initialize UI when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            new UploadUIPresigned();
+        });
+    </script>
+</body>
+</html>
+

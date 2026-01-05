@@ -1,0 +1,297 @@
+#!/bin/bash
+# Multipart file upload to S3 using presigned URLs with AWS CLI
+# Usage: ./multipart-upload-awscli.sh <file-path> [s3-key] [part-size-mb]
+
+set -e
+
+# Load configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/config.sh" ]; then
+    source "$SCRIPT_DIR/config.sh"
+else
+    echo "Error: config.sh not found"
+    exit 1
+fi
+
+# Check arguments
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 <file-path> [s3-key] [part-size-mb]"
+    echo "Example: $0 ./large-file.mp4 uploads/video.mp4 50"
+    exit 1
+fi
+
+FILE_PATH=$1
+S3_KEY=${2:-"${S3_UPLOAD_DIR:-uploads}/$(basename "$FILE_PATH")"}
+PART_SIZE_MB=${3:-$((${MULTIPART_PART_SIZE:-52428800} / 1024 / 1024))}
+
+# Convert MB to bytes
+PART_SIZE=$((PART_SIZE_MB * 1024 * 1024))
+
+# Validate minimum part size (5MB)
+if [ $PART_SIZE -lt 5242880 ]; then
+    echo "Error: Part size must be at least 5MB"
+    exit 1
+fi
+
+# Validate file exists
+if [ ! -f "$FILE_PATH" ]; then
+    echo "Error: File not found: $FILE_PATH"
+    exit 1
+fi
+
+# Assume role first
+echo "Step 1: Assuming role..."
+source "$SCRIPT_DIR/assume-role.sh"
+
+# Check if role was assumed successfully
+if [ -z "$AWS_SESSION_TOKEN" ]; then
+    echo "Error: Failed to assume role"
+    exit 1
+fi
+
+# Get file info
+FILE_SIZE=$(stat -f%z "$FILE_PATH" 2>/dev/null || stat -c%s "$FILE_PATH" 2>/dev/null)
+FILE_TYPE=$(file --mime-type -b "$FILE_PATH" 2>/dev/null || echo "application/octet-stream")
+TOTAL_PARTS=$(( ($FILE_SIZE + $PART_SIZE - 1) / $PART_SIZE ))
+
+echo "Step 2: File information"
+echo "  File: $FILE_PATH"
+echo "  Size: $(numfmt --to=iec-i --suffix=B $FILE_SIZE)"
+echo "  Type: $FILE_TYPE"
+echo "  S3 Key: s3://$BUCKET_NAME/$S3_KEY"
+echo "  Part size: ${PART_SIZE_MB}MB"
+echo "  Total parts: $TOTAL_PARTS"
+
+# Check if multipart upload is needed
+if [ $TOTAL_PARTS -eq 1 ]; then
+    echo "Note: File is small enough for single upload. Consider using simple-upload-awscli.sh"
+fi
+
+# Initiate multipart upload
+echo "Step 3: Initiating multipart upload..."
+INITIATE_OUTPUT=$(aws s3api create-multipart-upload \
+    --bucket "$BUCKET_NAME" \
+    --key "$S3_KEY" \
+    --content-type "$FILE_TYPE" \
+    --region "$REGION" \
+    --output json 2>&1)
+
+if [ $? -ne 0 ]; then
+    echo "Error initiating multipart upload:"
+    echo "$INITIATE_OUTPUT"
+    exit 1
+fi
+
+UPLOAD_ID=$(echo "$INITIATE_OUTPUT" | jq -r '.UploadId')
+echo "  Upload ID: $UPLOAD_ID"
+
+# Generate presigned URLs for all parts
+echo "Step 4: Generating presigned URLs for $TOTAL_PARTS parts..."
+
+# Check for Python with boto3 - prefer venv if it exists
+PYTHON_CMD=""
+VENV_PYTHON="$SCRIPT_DIR/venv/bin/python3"
+PYTHON_SCRIPT="$SCRIPT_DIR/generate-multipart-presigned-url.py"
+
+if [ -f "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "import boto3" 2>/dev/null; then
+    PYTHON_CMD="$VENV_PYTHON"
+elif command -v python3 &>/dev/null && python3 -c "import boto3" 2>/dev/null; then
+    PYTHON_CMD="python3"
+fi
+
+USE_PYTHON=false
+if [ -f "$PYTHON_SCRIPT" ] && [ -n "$PYTHON_CMD" ]; then
+    USE_PYTHON=true
+    echo "  Using Python/boto3 to generate presigned URLs..."
+else
+    echo "  Using AWS CLI to generate presigned URLs..."
+fi
+
+declare -a PRESIGNED_URLS
+declare -a PART_NUMBERS
+
+for ((PART_NUMBER=1; PART_NUMBER<=TOTAL_PARTS; PART_NUMBER++)); do
+    echo "  Generating URL for part $PART_NUMBER/$TOTAL_PARTS..."
+    
+    if [ "$USE_PYTHON" = true ]; then
+        # Use Python/boto3 for reliable presigned URL generation
+        PRESIGNED_URL=$("$PYTHON_CMD" "$PYTHON_SCRIPT" \
+            --bucket "$BUCKET_NAME" \
+            --key "$S3_KEY" \
+            --upload-id "$UPLOAD_ID" \
+            --part-number "$PART_NUMBER" \
+            --region "$REGION" \
+            --expires-in ${MULTIPART_EXPIRATION:-14400} 2>&1)
+        
+        PRESIGN_EXIT_CODE=$?
+    else
+        # Fallback to AWS CLI
+        PRESIGNED_URL=$(aws s3api presign \
+            --bucket "$BUCKET_NAME" \
+            --key "$S3_KEY" \
+            --expires-in ${MULTIPART_EXPIRATION:-14400} \
+            --region "$REGION" \
+            --operation upload-part \
+            --upload-id "$UPLOAD_ID" \
+            --part-number "$PART_NUMBER" 2>&1)
+        
+        PRESIGN_EXIT_CODE=$?
+    fi
+    
+    # Check for errors
+    if [ $PRESIGN_EXIT_CODE -ne 0 ] || [[ "$PRESIGNED_URL" =~ ^[Ee]rror ]] || [[ "$PRESIGNED_URL" =~ ^usage: ]]; then
+        echo "Error generating presigned URL for part $PART_NUMBER:"
+        echo "$PRESIGNED_URL"
+        # Abort upload
+        aws s3api abort-multipart-upload \
+            --bucket "$BUCKET_NAME" \
+            --key "$S3_KEY" \
+            --upload-id "$UPLOAD_ID" \
+            --region "$REGION" 2>&1 >/dev/null
+        
+        if [ "$USE_PYTHON" = false ]; then
+            echo ""
+            echo "Tip: Install boto3 for better presigned URL generation:"
+            echo "  pip3 install boto3"
+            echo "  Or use the venv: cd test-uploads && python3 -m venv venv && source venv/bin/activate && pip install boto3"
+        fi
+        exit 1
+    fi
+    
+    # Clean up the URL - extract just the URL, handling any extra output
+    PRESIGNED_URL=$(echo "$PRESIGNED_URL" | grep -oE 'https://[^[:space:]]+' | head -1)
+    if [ -z "$PRESIGNED_URL" ]; then
+        # If grep didn't work, try simpler extraction
+        PRESIGNED_URL=$(echo "$PRESIGNED_URL" | head -1 | tr -d '"' | tr -d "'" | tr -d '\n' | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    fi
+    
+    # Validate URL
+    if [[ ! "$PRESIGNED_URL" =~ ^https:// ]]; then
+        echo "Error: Generated URL doesn't look valid for part $PART_NUMBER: $PRESIGNED_URL"
+        # Abort upload
+        aws s3api abort-multipart-upload \
+            --bucket "$BUCKET_NAME" \
+            --key "$S3_KEY" \
+            --upload-id "$UPLOAD_ID" \
+            --region "$REGION" 2>&1 >/dev/null
+        exit 1
+    fi
+    
+    PRESIGNED_URLS[$PART_NUMBER]=$PRESIGNED_URL
+    PART_NUMBERS[$PART_NUMBER]=$PART_NUMBER
+done
+
+echo "  ✓ All presigned URLs generated"
+
+# Create temp directory for parts
+TEMP_DIR=$(mktemp -d)
+trap "rm -rf $TEMP_DIR; [ -n '$UPLOAD_ID' ] && aws s3api abort-multipart-upload --bucket $BUCKET_NAME --key $S3_KEY --upload-id $UPLOAD_ID --region $REGION 2>/dev/null || true" EXIT
+
+# Upload parts
+echo "Step 5: Uploading parts..."
+declare -a ETAGS
+
+for ((PART_NUMBER=1; PART_NUMBER<=TOTAL_PARTS; PART_NUMBER++)); do
+    echo "  Uploading part $PART_NUMBER/$TOTAL_PARTS..."
+    
+    # Calculate byte range
+    START_BYTE=$(( ($PART_NUMBER - 1) * $PART_SIZE ))
+    END_BYTE=$(( $START_BYTE + $PART_SIZE - 1 ))
+    if [ $END_BYTE -ge $FILE_SIZE ]; then
+        END_BYTE=$(( $FILE_SIZE - 1 ))
+    fi
+    
+    PART_SIZE_BYTES=$(( $END_BYTE - $START_BYTE + 1 ))
+    
+    # Extract part from file
+    PART_FILE="$TEMP_DIR/part_${PART_NUMBER}.tmp"
+    dd if="$FILE_PATH" of="$PART_FILE" bs=1 skip=$START_BYTE count=$PART_SIZE_BYTES 2>/dev/null
+    
+    # Upload part using curl
+    # For multipart upload parts (uploadPart), Content-Type is not required
+    # The presigned URL signature doesn't include Content-Type for uploadPart operations
+    # Use -T (upload file) which automatically uses PUT method
+    RESPONSE=$(curl -T "$PART_FILE" \
+        --url "${PRESIGNED_URLS[$PART_NUMBER]}" \
+        --silent \
+        --show-error \
+        -w "\nHTTP_CODE:%{http_code}" \
+        -D "$TEMP_DIR/headers_${PART_NUMBER}.txt" 2>&1)
+    
+    HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d':' -f2)
+    ETAG=$(grep -i "etag:" "$TEMP_DIR/headers_${PART_NUMBER}.txt" | cut -d' ' -f2 | tr -d '\r' | tr -d '"')
+    
+    if [ "$HTTP_CODE" == "200" ] && [ -n "$ETAG" ]; then
+        ETAGS[$PART_NUMBER]="$ETAG"
+        echo "    ✓ Part $PART_NUMBER uploaded (ETag: ${ETAG:0:20}...)"
+        rm -f "$PART_FILE"
+    else
+        echo "    ✗ Part $PART_NUMBER upload failed (HTTP: $HTTP_CODE)"
+        echo "$RESPONSE"
+        exit 1
+    fi
+done
+
+# Build parts JSON for completion
+echo "Step 6: Building parts manifest..."
+PARTS_JSON="{\"Parts\":["
+for ((PART_NUMBER=1; PART_NUMBER<=TOTAL_PARTS; PART_NUMBER++)); do
+    if [ $PART_NUMBER -gt 1 ]; then
+        PARTS_JSON+=","
+    fi
+    PARTS_JSON+="{\"PartNumber\":$PART_NUMBER,\"ETag\":\"${ETAGS[$PART_NUMBER]}\"}"
+done
+PARTS_JSON+="]}"
+
+echo "  Parts manifest built for $TOTAL_PARTS parts"
+
+# Complete multipart upload
+echo "Step 7: Completing multipart upload..."
+echo "  Sending completion request..."
+
+# Create a temporary file for the multipart upload JSON to avoid command line length issues
+MULTIPART_FILE=$(mktemp)
+echo "$PARTS_JSON" > "$MULTIPART_FILE"
+
+# Complete the multipart upload
+COMPLETE_OUTPUT=$(aws s3api complete-multipart-upload \
+    --bucket "$BUCKET_NAME" \
+    --key "$S3_KEY" \
+    --upload-id "$UPLOAD_ID" \
+    --multipart-upload "file://$MULTIPART_FILE" \
+    --region "$REGION" \
+    --output json 2>&1)
+
+COMPLETE_EXIT_CODE=$?
+rm -f "$MULTIPART_FILE"
+
+if [ $COMPLETE_EXIT_CODE -eq 0 ]; then
+    echo "✓ Multipart upload completed successfully!"
+    if command -v jq &>/dev/null; then
+        LOCATION=$(echo "$COMPLETE_OUTPUT" | jq -r '.Location // empty')
+        ETAG=$(echo "$COMPLETE_OUTPUT" | jq -r '.ETag // empty')
+        if [ -n "$LOCATION" ] && [ "$LOCATION" != "null" ]; then
+            echo "  Location: $LOCATION"
+        fi
+        if [ -n "$ETAG" ] && [ "$ETAG" != "null" ]; then
+            echo "  ETag: $ETAG"
+        fi
+    fi
+    echo "  File: s3://$BUCKET_NAME/$S3_KEY"
+    echo "  URL: https://s3.$REGION.amazonaws.com/$BUCKET_NAME/$S3_KEY"
+elif [ $COMPLETE_EXIT_CODE -eq 124 ]; then
+    echo "✗ Completion request timed out after 30 seconds"
+    echo "  Upload ID: $UPLOAD_ID"
+    echo "  You may need to complete it manually or check network connectivity"
+    echo "$COMPLETE_OUTPUT"
+    exit 1
+else
+    echo "✗ Failed to complete multipart upload:"
+    echo "$COMPLETE_OUTPUT"
+    exit 1
+fi
+
+# Cleanup
+rm -rf "$TEMP_DIR"
+trap - EXIT
+

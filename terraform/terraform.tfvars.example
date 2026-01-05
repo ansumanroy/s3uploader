@@ -1,0 +1,32 @@
+# AWS Configuration
+aws_region = "us-east-1"
+
+# Project Configuration
+project_name = "s3uploader"
+environment  = "dev"
+
+# S3 Bucket Configuration
+# Leave empty to auto-generate bucket name
+s3_bucket_name = ""
+enable_versioning = false
+enable_lifecycle  = true
+
+# Lambda Configuration
+lambda_runtime  = "nodejs18.x"
+lambda_timeout  = 30
+lambda_memory_size = 256
+
+# Presigned URL Configuration
+presigned_url_expiry = 3600  # 1 hour in seconds
+
+# CORS Configuration
+allowed_origins = "*"  # Or specify: "https://example.com,https://www.example.com"
+
+# Tags
+tags = {
+  Project     = "s3uploader"
+  Environment = "dev"
+  ManagedBy   = "terraform"
+  Owner       = "devops"
+}
+

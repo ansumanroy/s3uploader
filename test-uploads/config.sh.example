@@ -1,0 +1,32 @@
+#!/bin/bash
+# Configuration file for upload scripts
+# Copy this file to config.sh and update with your actual values
+
+# Optional: User credentials (only needed if using a specific user to assume role)
+# If not set, will use default AWS CLI credentials
+export USER_ACCESS_KEY="YOUR_ACCESS_KEY"
+export USER_SECRET_KEY="YOUR_SECRET_KEY"
+
+# IAM Role to assume (must have S3 permissions)
+# Run ./create-iam-resources.sh to create this role
+export ROLE_ARN="arn:aws:iam::123456789012:role/S3UploadRole"
+
+# S3 Configuration
+export BUCKET_NAME="my-upload-bucket"
+export REGION="us-east-1"
+
+# Upload directory in S3
+export S3_UPLOAD_DIR="uploads"
+
+# Presigned URL expiration (in seconds)
+# Small files: 3600 (1 hour)
+# Medium files: 7200 (2 hours)
+# Large files: 14400 (4 hours)
+export PRESIGNED_URL_EXPIRATION=3600
+
+# Multipart upload settings
+export MULTIPART_PART_SIZE=52428800  # 50MB per part (minimum 5MB)
+export MULTIPART_EXPIRATION=14400    # 4 hours
+
+# Session duration (in seconds)
+export SESSION_DURATION=3600  # 1 hour

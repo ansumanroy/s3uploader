@@ -1,0 +1,28 @@
+{
+  "uploadId": "sample-upload-id-12345",
+  "bucket": "your-bucket-name",
+  "key": "uploads/sample-video.mp4",
+  "presignedUrls": [
+    {
+      "partNumber": 1,
+      "url": "https://s3.amazonaws.com/your-bucket/uploads/sample-video.mp4?uploadId=sample-upload-id-12345&partNumber=1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...&X-Amz-Date=...&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=..."
+    },
+    {
+      "partNumber": 2,
+      "url": "https://s3.amazonaws.com/your-bucket/uploads/sample-video.mp4?uploadId=sample-upload-id-12345&partNumber=2&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...&X-Amz-Date=...&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=..."
+    },
+    {
+      "partNumber": 3,
+      "url": "https://s3.amazonaws.com/your-bucket/uploads/sample-video.mp4?uploadId=sample-upload-id-12345&partNumber=3&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...&X-Amz-Date=...&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=..."
+    },
+    {
+      "partNumber": 4,
+      "url": "https://s3.amazonaws.com/your-bucket/uploads/sample-video.mp4?uploadId=sample-upload-id-12345&partNumber=4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...&X-Amz-Date=...&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=..."
+    },
+    {
+      "partNumber": 5,
+      "url": "https://s3.amazonaws.com/your-bucket/uploads/sample-video.mp4?uploadId=sample-upload-id-12345&partNumber=5&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...&X-Amz-Date=...&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=..."
+    }
+  ]
+}
+
